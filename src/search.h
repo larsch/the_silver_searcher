@@ -4,8 +4,8 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <pcre.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +18,10 @@
 #include <unistd.h>
 
 #include "config.h"
+
+#ifdef HAVE_PTHREAD_H
+#include <pthread.h>
+#endif
 
 #include "ignore.h"
 #include "log.h"
@@ -60,7 +64,7 @@ typedef struct {
 
 symdir_t *symhash;
 
-void search_buf(const char *buf, const int buf_len,
+void search_buf(const char *buf, const size_t buf_len,
                 const char *dir_full_path);
 void search_stream(FILE *stream, const char *path);
 void search_file(const char *file_full_path);

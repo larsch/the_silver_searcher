@@ -41,8 +41,15 @@ char *ag_strdup(const char *s) {
 }
 
 char *ag_strndup(const char *s, size_t size) {
-    char *str = strndup(s, size);
+    char *str = NULL;
+#ifdef HAVE_STRNDUP
+    str = strndup(s, size);
     CHECK_AND_RETURN(str)
+#else
+    str = (char *)ag_malloc(size + 1);
+    strlcpy(str, s, size + 1);
+    return str;
+#endif
 }
 
 void generate_skip_lookup(const char *find, size_t f_len, size_t skip_lookup[], int case_sensitive) {
@@ -116,39 +123,69 @@ strncmp_fp get_strstr(enum case_behavior casing) {
     return ag_strncmp_fp;
 }
 
-int invert_matches(match matches[], int matches_len, const int buf_len) {
-    int i;
+size_t invert_matches(const char *buf, const size_t buf_len, match matches[], size_t matches_len) {
+    size_t i;
+    size_t match_read_index = 0;
+    size_t inverted_match_count = 0;
+    size_t inverted_match_start = 0;
+    size_t last_line_end = 0;
+    int in_inverted_match = TRUE;
+    match next_match;
 
+    log_debug("Inverting %u matches.", matches_len);
+
+    if (matches_len > 0) {
+        next_match = matches[0];
+    } else {
+        next_match.start = buf_len + 1;
+    }
+
+    /* No matches, so the whole buffer is now a match. */
     if (matches_len == 0) {
         matches[0].start = 0;
-        matches[0].end = buf_len;
+        matches[0].end = buf_len - 1;
         return 1;
     }
 
-    if (matches_len == 1 && matches[0].start == 0 && matches[0].end == buf_len) {
-        /* entire buffer is a match */
-        return 0;
-    }
+    for (i = 0; i < buf_len; i++) {
+        if (i == next_match.start) {
+            i = next_match.end - 1;
 
-    if (matches[0].start == 0) {
-        for (i = 0; i < matches_len; i++) {
-            matches[i].start = matches[i].end;
-            matches[i].end = matches[i + 1].start;
+            match_read_index++;
+
+            if (match_read_index < matches_len) {
+                next_match = matches[match_read_index];
+            }
+
+            if (in_inverted_match && last_line_end > inverted_match_start) {
+                matches[inverted_match_count].start = inverted_match_start;
+                matches[inverted_match_count].end = last_line_end - 1;
+
+                inverted_match_count++;
+            }
+
+            in_inverted_match = FALSE;
+        } else if (i == buf_len - 1 && in_inverted_match) {
+            matches[inverted_match_count].start = inverted_match_start;
+            matches[inverted_match_count].end = i;
+
+            inverted_match_count++;
+        } else if (buf[i] == '\n') {
+            last_line_end = i + 1;
+
+            if (!in_inverted_match) {
+                inverted_match_start = last_line_end;
+            }
+
+            in_inverted_match = TRUE;
         }
-        matches_len--;
-    } else {
-        for (i = matches_len; i >= 0; i--) {
-            matches[i].end = matches[i].start;
-            matches[i].start = i == 0 ? 0 : matches[i - 1].end;
-        }
     }
 
-    matches[matches_len].end = buf_len;
-    if (matches[matches_len].start != matches[matches_len].end) {
-        matches_len++;
+    for (i = 0; i < matches_len; i++) {
+        log_debug("Inverted match %i start %i end %i.", i, matches[i].start, matches[i].end);
     }
 
-    return matches_len;
+    return inverted_match_count;
 }
 
 void compile_study(pcre **re, pcre_extra **re_extra, char *q, const int pcre_opts, const int study_opts) {
@@ -166,11 +203,11 @@ void compile_study(pcre **re, pcre_extra **re_extra, char *q, const int pcre_opt
 }
 
 /* This function is very hot. It's called on every file. */
-int is_binary(const void *buf, const int buf_len) {
-    int suspicious_bytes = 0;
-    int total_bytes = buf_len > 512 ? 512 : buf_len;
+int is_binary(const void *buf, const size_t buf_len) {
+    size_t suspicious_bytes = 0;
+    size_t total_bytes = buf_len > 512 ? 512 : buf_len;
     const unsigned char *buf_c = buf;
-    int i;
+    size_t i;
 
     if (buf_len == 0) {
         return 0;
@@ -443,10 +480,13 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream) {
 #endif
 
 #ifndef HAVE_REALPATH
+/*
+ * realpath() for Windows. Turns slashes into backslashes and calls _fullpath
+ */
 char *realpath(const char *path, char *resolved_path) {
     char *p;
     char tmp[MAX_PATH + 1];
-    strncpy(tmp, path, sizeof(tmp) - 1);
+    strlcpy(tmp, path, sizeof(tmp));
     p = tmp;
     while (*p) {
         if (*p == '/') {
@@ -454,23 +494,36 @@ char *realpath(const char *path, char *resolved_path) {
         }
         p++;
     }
-    return _fullpath(resolved_path, tmp, MAX_PATH);
+    return _fullpath(resolved_path, tmp, _MAX_PATH);
 }
 #endif
 
-#ifndef HAVE_STRNDUP
-/* Apache-licensed implementation of strndup for OS
- * taken from http://source-android.frandroid.com/dalvik/tools/dmtracedump/CreateTestTrace.c
- * modified to check for malloc() failure
- */
-char *strndup(const char *src, size_t len) {
-    char *dest = (char *)malloc(len + 1);
-    if (!dest) {
-        return NULL;
+#ifndef HAVE_STRLCPY
+size_t strlcpy(char *dst, const char *src, size_t size) {
+    char *d = dst;
+    const char *s = src;
+    size_t n = size;
+
+    /* Copy as many bytes as will fit */
+    if (n != 0) {
+        while (--n != 0) {
+            if ((*d++ = *s++) == '\0') {
+                break;
+            }
+        }
     }
-    strncpy(dest, src, len);
-    dest[len] = 0;
-    return dest;
+
+    /* Not enough room in dst, add NUL and traverse rest of src */
+    if (n == 0) {
+        if (size != 0) {
+            *d = '\0'; /* NUL-terminate dst */
+        }
+
+        while (*s++) {
+        }
+    }
+
+    return (s - src - 1); /* count does not include NUL */
 }
 #endif
 

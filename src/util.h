@@ -29,8 +29,8 @@ char *ag_strdup(const char *s);
 char *ag_strndup(const char *s, size_t size);
 
 typedef struct {
-    int start; /* Byte at which the match starts */
-    int end;   /* and where it ends */
+    size_t start; /* Byte at which the match starts */
+    size_t end;   /* and where it ends */
 } match;
 
 typedef struct {
@@ -59,13 +59,13 @@ const char *boyer_moore_strncasestr(const char *s, const char *find, const size_
 
 strncmp_fp get_strstr(enum case_behavior opts);
 
-int invert_matches(match matches[], int matches_len, const int buf_len);
+size_t invert_matches(const char *buf, const size_t buf_len, match matches[], size_t matches_len);
 void compile_study(pcre **re, pcre_extra **re_extra, char *q, const int pcre_opts, const int study_opts);
 
 void *decompress(const ag_compression_type zip_type, const void *buf, const int buf_len, const char *dir_full_path, int *new_buf_len);
 ag_compression_type is_zipped(const void *buf, const int buf_len);
 
-int is_binary(const void *buf, const int buf_len);
+int is_binary(const void *buf, const size_t buf_len);
 int is_regex(const char *query);
 int is_fnmatch(const char *filename);
 int binary_search(const char *needle, char **haystack, int start, int end);
@@ -92,8 +92,8 @@ ssize_t getline(char **lineptr, size_t *n, FILE *stream);
 #ifndef HAVE_REALPATH
 char *realpath(const char *path, char *resolved_path);
 #endif
-#ifndef HAVE_STRNDUP
-char *strndup(const char *s, size_t n);
+#ifndef HAVE_STRLCPY
+size_t strlcpy(char *dest, const char *src, size_t size);
 #endif
 #ifndef HAVE_VASPRINTF
 int vasprintf(char **ret, const char *fmt, va_list args);
