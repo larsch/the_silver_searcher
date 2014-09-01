@@ -15,8 +15,10 @@ SRCS = \
 	src/util.c
 OBJS = $(subst .c,.o,$(SRCS))
 
-CFLAGS = -O2 -Isrc/win32 -DPACKAGE_VERSION=\"$(VERSION)\"
+CFLAGS = -O2 -Isrc/win32 -DPACKAGE_VERSION=\"$(VERSION)\" -DHAVE_PTHREAD_H
 LIBS = -lz -lpthread -lpcre -llzma -lshlwapi
+CFLAGS := -Ic:/appl/mingw/local/include $(CFLAGS)
+LIBS := -Lc:/appl/mingw/local/lib $(LIBS)
 TARGET = ag.exe
 
 all : $(TARGET)
